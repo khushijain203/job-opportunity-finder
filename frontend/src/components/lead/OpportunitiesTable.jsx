@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowSquareOut,
   BookmarkSimple,
+  ClockCounterClockwise,
   Sparkle,
   Trash,
 } from "@phosphor-icons/react";
@@ -55,6 +56,7 @@ export const OpportunitiesTable = ({
   meta,
   onChanged,
   onGenerateEmail,
+  onShowHistory,
 }) => {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [busy, setBusy] = useState({});

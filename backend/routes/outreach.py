@@ -1,21 +1,18 @@
-"""Outreach email generation using Claude Sonnet 4.5 via Emergent Universal Key.
-
-Endpoint:
-    POST /api/outreach/generate  -> returns generated email JSON
-
-Designed to be extended with future channels (Gmail send, Outlook send, scheduling).
-"""
+"""Outreach email generation using Claude Sonnet 4.5. Scoped per user; persists history."""
 
 from __future__ import annotations
 
 import logging
 import os
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+
+from core.security import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +28,12 @@ class GenerateEmailRequest(BaseModel):
 
 
 class GenerateEmailResponse(BaseModel):
+    id: str
     opportunity_id: str
     to: Optional[str] = None
     subject: str
     body: str
+    created_at: str
 
 
 SYSTEM_PROMPT = (
@@ -48,13 +47,19 @@ SYSTEM_PROMPT = (
 )
 
 
-def _build_user_prompt(opp: dict, req: GenerateEmailRequest) -> str:
-    sender_name = req.sender_name or "[Your Name]"
+def _build_user_prompt(opp: dict, req: GenerateEmailRequest, profile: Optional[dict]) -> str:
+    sender_name = req.sender_name or (profile or {}).get("full_name") or "[Your Name]"
     sender_role = req.sender_role or "candidate"
     sender_pitch = req.sender_pitch or (
         "I have hands-on project experience and I'm eager to contribute and learn."
     )
     skills = ", ".join(opp.get("skills") or []) or "the listed skills"
+
+    profile_block = ""
+    if profile:
+        my_skills = profile.get("skills") or []
+        if my_skills:
+            profile_block = f"\nCandidate's own skills: {', '.join(my_skills)}\n"
 
     return (
         f"Write an outreach email in a {req.tone} tone.\n\n"
@@ -69,30 +74,38 @@ def _build_user_prompt(opp: dict, req: GenerateEmailRequest) -> str:
         f"Sender:\n"
         f"- Name: {sender_name}\n"
         f"- Current role / background: {sender_role}\n"
-        f"- Pitch / highlights: {sender_pitch}\n\n"
+        f"- Pitch / highlights: {sender_pitch}"
+        f"{profile_block}\n\n"
         "Now produce the email."
     )
 
 
 def _parse_subject_body(text: str) -> tuple[str, str]:
-    """Split 'Subject: ...' first line from the rest of the body."""
-    text = text.strip()
+    text = (text or "").strip()
     lines = text.splitlines()
     if lines and lines[0].lower().startswith("subject:"):
         subject = lines[0].split(":", 1)[1].strip()
         body = "\n".join(lines[1:]).lstrip("\n").strip()
     else:
-        subject = f"Quick note re: opening"
+        subject = "Quick note re: opening"
         body = text
     return subject, body
 
 
 @router.post("/generate", response_model=GenerateEmailResponse)
-async def generate_outreach_email(payload: GenerateEmailRequest, request: Request):
+async def generate_outreach_email(
+    payload: GenerateEmailRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
     db = request.app.state.db
-    opp = await db.opportunities.find_one({"id": payload.opportunity_id}, {"_id": 0})
+    opp = await db.opportunities.find_one(
+        {"id": payload.opportunity_id, "user_id": user["id"]}, {"_id": 0}
+    )
     if not opp:
         raise HTTPException(status_code=404, detail="Opportunity not found")
+
+    profile = await db.profiles.find_one({"user_id": user["id"]}, {"_id": 0})
 
     api_key = os.environ.get("EMERGENT_LLM_KEY")
     if not api_key:
@@ -104,20 +117,30 @@ async def generate_outreach_email(payload: GenerateEmailRequest, request: Reques
         system_message=SYSTEM_PROMPT,
     ).with_model("anthropic", "claude-sonnet-4-5-20250929")
 
-    user_prompt = _build_user_prompt(opp, payload)
+    user_prompt = _build_user_prompt(opp, payload, profile)
 
     try:
         raw = await chat.send_message(UserMessage(text=user_prompt))
-    except Exception as exc:  # surface upstream errors as 502
+    except Exception as exc:
         logger.exception("LLM generation failed")
         raise HTTPException(status_code=502, detail=f"LLM generation failed: {exc}") from exc
 
     text = raw if isinstance(raw, str) else str(raw)
     subject, body = _parse_subject_body(text)
 
-    return GenerateEmailResponse(
-        opportunity_id=payload.opportunity_id,
-        to=opp.get("contact_email"),
-        subject=subject,
-        body=body,
-    )
+    # Persist into generated_emails (per-user history).
+    record = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "opportunity_id": payload.opportunity_id,
+        "company_name": opp.get("company_name"),
+        "role": opp.get("role"),
+        "to": opp.get("contact_email"),
+        "subject": subject,
+        "body": body,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.generated_emails.insert_one(dict(record))
+    record.pop("_id", None)
+
+    return GenerateEmailResponse(**record)

@@ -1,17 +1,4 @@
-"""Opportunity routes - discovery pipeline core.
-
-Endpoints (all under /api/opportunities):
-    GET    /                          - list w/ filters, search, sort
-    POST   /                          - create
-    DELETE /{id}                      - delete
-    PATCH  /{id}/status               - update status
-    POST   /{id}/save-to-leads        - copy company info into Leads
-    POST   /seed                      - one-shot demo data loader (idempotent)
-    GET    /meta                      - enums (employment_type, work_mode, status)
-
-Designed to be extended later with sources like:
-    /sources/crunchbase, /sources/ycombinator, /sources/jobboard, etc.
-"""
+"""Opportunity routes - scoped to the authenticated user."""
 
 from __future__ import annotations
 
@@ -21,8 +8,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from core.security import get_current_user
 from models.opportunity import (
     EMPLOYMENT_TYPES,
     Opportunity,
@@ -42,7 +30,7 @@ def _db(request: Request):
 
 
 # ---------------------------------------------------------------------------- #
-# Seed data – used only when collection is empty (idempotent demo loader).
+# Seed data (per user, idempotent if user already has opportunities)
 # ---------------------------------------------------------------------------- #
 SEED_OPPORTUNITIES: List[dict] = [
     {
@@ -117,7 +105,6 @@ SEED_OPPORTUNITIES: List[dict] = [
 # Helpers
 # ---------------------------------------------------------------------------- #
 def _safe_regex(value: str) -> dict:
-    """Case-insensitive partial regex match, with input escaped."""
     return {"$regex": re.escape(value), "$options": "i"}
 
 
@@ -130,6 +117,7 @@ def _validate_enum(value: Optional[str], allowed: tuple[str, ...], field: str) -
 
 
 def _build_query(
+    user_id: str,
     search: Optional[str],
     role: Optional[str],
     location: Optional[str],
@@ -138,7 +126,7 @@ def _build_query(
     work_mode: Optional[str],
     status: Optional[str],
 ) -> dict:
-    q: dict = {}
+    q: dict = {"user_id": user_id}
     if search:
         q["company_name"] = _safe_regex(search)
     if role:
@@ -152,7 +140,6 @@ def _build_query(
     if status:
         q["status"] = status
     if skills:
-        # Match if any of the requested skills appears in opportunity skills (case-insensitive).
         q["skills"] = {"$in": [re.compile(re.escape(s), re.IGNORECASE) for s in skills if s.strip()]}
     return q
 
@@ -190,6 +177,7 @@ async def list_opportunities(
     work_mode: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
     sort: str = Query(default="newest"),
+    user: dict = Depends(get_current_user),
 ):
     _validate_enum(employment_type, EMPLOYMENT_TYPES, "employment_type")
     _validate_enum(work_mode, WORK_MODES, "work_mode")
@@ -198,41 +186,53 @@ async def list_opportunities(
         raise HTTPException(status_code=422, detail=f"Invalid sort. Use one of {list(SORT_MAP)}.")
 
     db = _db(request)
-    q = _build_query(search, role, location, skills, employment_type, work_mode, status)
+    q = _build_query(user["id"], search, role, location, skills, employment_type, work_mode, status)
     cursor = db.opportunities.find(q, {"_id": 0}).sort(SORT_MAP[sort]).limit(1000)
     docs = await cursor.to_list(length=1000)
     return [Opportunity(**d) for d in docs]
 
 
 @router.post("", response_model=Opportunity, status_code=201)
-async def create_opportunity(payload: OpportunityCreate, request: Request):
+async def create_opportunity(
+    payload: OpportunityCreate,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
     _validate_enum(payload.employment_type, EMPLOYMENT_TYPES, "employment_type")
     _validate_enum(payload.work_mode, WORK_MODES, "work_mode")
     db = _db(request)
     opp = Opportunity(**payload.model_dump())
-    await db.opportunities.insert_one(opp.model_dump())
-    logger.info("Created opportunity id=%s company=%s", opp.id, opp.company_name)
+    doc = opp.model_dump()
+    doc["user_id"] = user["id"]
+    await db.opportunities.insert_one(doc)
     return opp
 
 
 @router.delete("/{opp_id}", status_code=204)
-async def delete_opportunity(opp_id: str, request: Request):
+async def delete_opportunity(
+    opp_id: str, request: Request, user: dict = Depends(get_current_user)
+):
     db = _db(request)
-    result = await db.opportunities.delete_one({"id": opp_id})
+    result = await db.opportunities.delete_one({"id": opp_id, "user_id": user["id"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Opportunity not found")
     return None
 
 
 @router.patch("/{opp_id}/status", response_model=Opportunity)
-async def update_status(opp_id: str, payload: OpportunityStatusUpdate, request: Request):
+async def update_status(
+    opp_id: str,
+    payload: OpportunityStatusUpdate,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
     _validate_enum(payload.status, STATUSES, "status")
     db = _db(request)
     result = await db.opportunities.find_one_and_update(
-        {"id": opp_id},
+        {"id": opp_id, "user_id": user["id"]},
         {"$set": {"status": payload.status}},
         projection={"_id": 0},
-        return_document=True,  # pymongo.ReturnDocument.AFTER == True
+        return_document=True,
     )
     if not result:
         raise HTTPException(status_code=404, detail="Opportunity not found")
@@ -240,17 +240,20 @@ async def update_status(opp_id: str, payload: OpportunityStatusUpdate, request: 
 
 
 @router.post("/{opp_id}/save-to-leads")
-async def save_to_leads(opp_id: str, request: Request):
-    """Create / upsert a Company in the Leads module using this opportunity's info."""
+async def save_to_leads(
+    opp_id: str, request: Request, user: dict = Depends(get_current_user)
+):
     db = _db(request)
-    opp = await db.opportunities.find_one({"id": opp_id}, {"_id": 0})
+    opp = await db.opportunities.find_one({"id": opp_id, "user_id": user["id"]}, {"_id": 0})
     if not opp:
         raise HTTPException(status_code=404, detail="Opportunity not found")
 
     name = opp["company_name"].strip()
-    # Check for existing lead by case-insensitive name match.
     existing = await db.companies.find_one(
-        {"company_name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}},
+        {
+            "user_id": user["id"],
+            "company_name": {"$regex": f"^{re.escape(name)}$", "$options": "i"},
+        },
         {"_id": 0},
     )
     if existing:
@@ -258,30 +261,30 @@ async def save_to_leads(opp_id: str, request: Request):
 
     company = {
         "id": str(uuid.uuid4()),
+        "user_id": user["id"],
         "company_name": name,
         "website": opp.get("company_website"),
         "email": opp.get("contact_email"),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.companies.insert_one(company)
-    logger.info("Saved opportunity %s to Leads as company %s", opp_id, company["id"])
-    # Strip ObjectId injected by motor before serializing.
     company.pop("_id", None)
     return {"created": True, "company": company, "message": "Saved to Leads"}
 
 
 @router.post("/seed")
-async def seed(request: Request):
-    """Insert demo opportunities only if the collection is empty (idempotent)."""
+async def seed(request: Request, user: dict = Depends(get_current_user)):
+    """Insert sample opportunities for THIS user (idempotent per user)."""
     db = _db(request)
-    existing = await db.opportunities.count_documents({})
+    existing = await db.opportunities.count_documents({"user_id": user["id"]})
     if existing > 0:
-        return {"inserted": 0, "message": f"Skipped – collection already has {existing} records."}
+        return {"inserted": 0, "message": f"Skipped – you already have {existing} opportunities."}
 
     docs = []
     for raw in SEED_OPPORTUNITIES:
         opp = Opportunity(**raw)
-        docs.append(opp.model_dump())
+        d = opp.model_dump()
+        d["user_id"] = user["id"]
+        docs.append(d)
     await db.opportunities.insert_many(docs)
-    logger.info("Seeded %d opportunities", len(docs))
     return {"inserted": len(docs), "message": "Seeded sample opportunities."}

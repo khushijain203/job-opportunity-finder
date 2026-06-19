@@ -7,6 +7,7 @@ import { OpportunityFilters } from "./OpportunityFilters";
 import { OpportunitiesTable } from "./OpportunitiesTable";
 import { AddOpportunityDialog } from "./AddOpportunityDialog";
 import { GenerateEmailDialog } from "./GenerateEmailDialog";
+import { EmailHistoryDialog } from "./EmailHistoryDialog";
 
 const useDebounced = (value, delay = 250) => {
   const [v, setV] = useState(value);
@@ -38,6 +39,7 @@ export const OpportunitiesView = ({ onLeadsChanged }) => {
   const [seeding, setSeeding] = useState(false);
 
   const [emailFor, setEmailFor] = useState(null);
+  const [historyFor, setHistoryFor] = useState(null);
 
   useEffect(() => {
     opportunitiesApi.meta().then(setMeta).catch(() => {});
@@ -142,12 +144,19 @@ export const OpportunitiesView = ({ onLeadsChanged }) => {
         meta={meta}
         onChanged={handleChanged}
         onGenerateEmail={(opp) => setEmailFor(opp)}
+        onShowHistory={(opp) => setHistoryFor(opp)}
       />
 
       <GenerateEmailDialog
         open={!!emailFor}
         opportunity={emailFor}
         onClose={() => setEmailFor(null)}
+      />
+
+      <EmailHistoryDialog
+        open={!!historyFor}
+        opportunity={historyFor}
+        onClose={() => setHistoryFor(null)}
       />
     </section>
   );
