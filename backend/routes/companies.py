@@ -43,7 +43,7 @@ async def list_companies(
 
         query["company_name"] = {"$regex": re.escape(search), "$options": "i"}
 
-    cursor = db.companies.find(query, {"_id": 0}).sort("created_at", -1)
+    cursor = db.companies.find(query, {"_id": 0}).sort("created_at", -1).limit(1000)
     docs = await cursor.to_list(length=1000)
     return [Company(**doc) for doc in docs]
 
@@ -88,7 +88,7 @@ async def stats(request: Request):
 async def export_csv(request: Request):
     """Stream all companies as a CSV download."""
     db = _db(request)
-    cursor = db.companies.find({}, {"_id": 0}).sort("created_at", -1)
+    cursor = db.companies.find({}, {"_id": 0}).sort("created_at", -1).limit(10_000)
     docs = await cursor.to_list(length=10_000)
 
     buffer = io.StringIO()
