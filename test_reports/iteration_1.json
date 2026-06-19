@@ -1,0 +1,46 @@
+{
+  "summary": "Full backend + frontend testing for Startup Lead Finder MVP. All 10 backend pytest cases passed (health, create + validation 422s, list ordering, case-insensitive search, delete + 404, stats, CSV export). Frontend e2e (add lead via dialog, debounced search, clear search, delete with confirm dialog + toast, CSV endpoint) all work. One responsive issue found: header overflows at mobile 390px viewport (Add Lead button gets clipped).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Header (mobile <= 390px)",
+        "issues": [
+          "Horizontal overflow: document scrollWidth=439px vs viewport=390px. The Header's right-side button group (Export CSV + Add Lead with data-testid=add-company-btn) extends past the right viewport edge, causing the Add Lead button to be partially clipped. Recommend either stacking buttons, shrinking icon-only on small screens, or wrapping the header buttons with flex-wrap and reducing horizontal padding on mobile."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_companies_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix mobile header overflow at <=390px breakpoint so Add Lead / Export CSV buttons remain fully visible (or wrap below the brand)."
+  ],
+  "critical_code_review_comments": [
+    "server.py uses deprecated FastAPI @app.on_event hooks; migrate to lifespan handlers for FastAPI >=0.95 best practice (non-blocking, but will warn in newer versions).",
+    "routes/companies.py: `import re` placed inside the request handler — works, but moving to module-level is cleaner.",
+    "stats endpoint uses two count_documents queries; for very small data it is fine, but consider a single aggregation for scale.",
+    "Models: `website` is typed as Optional[str] (not HttpUrl) — acceptable for an MVP that accepts bare domains, but no URL validation occurs (e.g., the frontend stores 'acme.com' unchanged). Document this or add a light validator.",
+    "AddCompanyDialog: when API returns 422 with a list, only detail[0].msg is shown — for multi-field errors users see only one. Consider joining messages."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_companies_api.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "95% (1 responsive design issue)"
+  },
+  "test_credentials": "N/A - open access app, no auth",
+  "seed_data_creation": "Test data created and cleaned up via TEST_ prefix in module-scoped session fixture teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests live at /app/backend/tests/test_companies_api.py and clean their TEST_ prefixed rows in teardown. The only outstanding issue is mobile (390px) header overflow — verify after main agent applies a responsive fix by checking document.documentElement.scrollWidth <= window.innerWidth at viewport 390x844.",
+  "rca of the issue": "Mobile header overflow RCA: /app/frontend/src/components/lead/Header.jsx (not viewed but inferred from LeadFinder.jsx using <Header> with two child Buttons) places the brand + Export CSV (h-10 px-4) + Add Lead (h-10 px-5) in a single row inside a `flex items-center gap-3` container, which on a 390px viewport sums to ~439px and overflows. Mitigation: either (a) use flex-wrap with justify-end so buttons wrap below the brand on small screens, (b) hide button labels on small screens and show only icons, or (c) reduce horizontal padding for mobile (e.g., `px-3 md:px-5`)."
+}
