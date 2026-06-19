@@ -3,11 +3,44 @@ import axios from "axios";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API_BASE = `${BACKEND_URL}/api`;
 
-// Single axios instance with credentials so HTTP-only cookies are sent on every call.
+// Single axios instance. We send credentials (cookies) AND an Authorization
+// Bearer header. The backend accepts either, so this works even when
+// upstream proxies inject conflicting CORS headers that block cookies in
+// some browser contexts.
 const http = axios.create({
   baseURL: API_BASE,
   withCredentials: true,
 });
+
+const TOKEN_KEY = "lf_access_token";
+
+export function setAuthToken(token) {
+  if (token) {
+    try {
+      sessionStorage.setItem(TOKEN_KEY, token);
+    } catch {
+      /* ignore - private mode */
+    }
+    http.defaults.headers.common.Authorization = `Bearer ${token}`;
+  } else {
+    try {
+      sessionStorage.removeItem(TOKEN_KEY);
+    } catch {
+      /* ignore */
+    }
+    delete http.defaults.headers.common.Authorization;
+  }
+}
+
+// Rehydrate on module load (e.g. page refresh in the same tab).
+(() => {
+  try {
+    const t = sessionStorage.getItem(TOKEN_KEY);
+    if (t) http.defaults.headers.common.Authorization = `Bearer ${t}`;
+  } catch {
+    /* ignore */
+  }
+})();
 
 // ---------------------------------------------------------------------------- //
 // Auth

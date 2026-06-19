@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { authApi, formatApiErrorDetail } from "../lib/api";
+import { authApi, formatApiErrorDetail, setAuthToken } from "../lib/api";
 
 // undefined = checking, null = unauthenticated, object = user
 const AuthContext = createContext({
@@ -9,6 +9,18 @@ const AuthContext = createContext({
   logout: async () => {},
   refreshUser: async () => {},
 });
+
+const isUserPayload = (data) =>
+  data && typeof data === "object" && data.email && data.id;
+
+// Login / register endpoints return either { user, access_token } (new) or just a UserPublic (legacy).
+const extractAuth = (data) => {
+  if (!data) return { user: null, token: null };
+  if (isUserPayload(data)) return { user: data, token: null }; // legacy shape
+  if (data.user && isUserPayload(data.user))
+    return { user: data.user, token: data.access_token || null };
+  return { user: null, token: null };
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(undefined);
@@ -20,6 +32,7 @@ export const AuthProvider = ({ children }) => {
       return me;
     } catch {
       setUser(null);
+      setAuthToken(null);
       return null;
     }
   }, []);
@@ -30,9 +43,11 @@ export const AuthProvider = ({ children }) => {
 
   const login = useCallback(async (email, password) => {
     try {
-      const me = await authApi.login({ email, password });
-      setUser(me);
-      return { ok: true, user: me };
+      const data = await authApi.login({ email, password });
+      const { user: u, token } = extractAuth(data);
+      if (token) setAuthToken(token);
+      setUser(u);
+      return { ok: true, user: u };
     } catch (err) {
       return {
         ok: false,
@@ -43,9 +58,11 @@ export const AuthProvider = ({ children }) => {
 
   const register = useCallback(async (payload) => {
     try {
-      const me = await authApi.register(payload);
-      setUser(me);
-      return { ok: true, user: me };
+      const data = await authApi.register(payload);
+      const { user: u, token } = extractAuth(data);
+      if (token) setAuthToken(token);
+      setUser(u);
+      return { ok: true, user: u };
     } catch (err) {
       return {
         ok: false,
@@ -61,6 +78,7 @@ export const AuthProvider = ({ children }) => {
     } catch {
       /* swallow */
     }
+    setAuthToken(null);
     setUser(null);
   }, []);
 

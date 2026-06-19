@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel
 
 from core.security import (
     clear_auth_cookies,
@@ -63,10 +64,25 @@ async def _claim_orphans_for(db, user_id: str) -> dict:
     return {"claimed": True, "counts": counts}
 
 
+class AuthResponse(BaseModel):
+    user: UserPublic
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
+def _auth_response(user_doc: dict, access: str, refresh: str) -> "AuthResponse":
+    return AuthResponse(
+        user=_public(user_doc),
+        access_token=access,
+        refresh_token=refresh,
+    )
+
+
 # ---------------------------------------------------------------------------- #
 # Register
 # ---------------------------------------------------------------------------- #
-@router.post("/register", response_model=UserPublic, status_code=201)
+@router.post("/register", response_model=AuthResponse, status_code=201)
 async def register(payload: UserRegister, request: Request, response: Response):
     db = request.app.state.db
     email = payload.email.lower().strip()
@@ -92,13 +108,13 @@ async def register(payload: UserRegister, request: Request, response: Response):
     set_auth_cookies(response, access, refresh)
 
     logger.info("Registered user id=%s email=%s", user.id, user.email)
-    return _public(user.model_dump())
+    return _auth_response(user.model_dump(), access, refresh)
 
 
 # ---------------------------------------------------------------------------- #
 # Login
 # ---------------------------------------------------------------------------- #
-@router.post("/login", response_model=UserPublic)
+@router.post("/login", response_model=AuthResponse)
 async def login(payload: UserLogin, request: Request, response: Response):
     db = request.app.state.db
     email = payload.email.lower().strip()
@@ -109,16 +125,28 @@ async def login(payload: UserLogin, request: Request, response: Response):
     access = create_access_token(user["id"], user["email"])
     refresh = create_refresh_token(user["id"])
     set_auth_cookies(response, access, refresh)
-    return _public(user)
+    return _auth_response(user, access, refresh)
 
 
 # ---------------------------------------------------------------------------- #
 # Refresh
 # ---------------------------------------------------------------------------- #
-@router.post("/refresh", response_model=UserPublic)
+@router.post("/refresh", response_model=AuthResponse)
 async def refresh_token(request: Request, response: Response):
     db = request.app.state.db
+    # Accept refresh token from cookie OR JSON body OR Authorization header
     token: Optional[str] = request.cookies.get("refresh_token")
+    if not token:
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        token = body.get("refresh_token") if isinstance(body, dict) else None
+    if not token:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
     if not token:
         raise HTTPException(status_code=401, detail="No refresh token")
     payload = decode_token(token, expected_type="refresh")
@@ -128,7 +156,7 @@ async def refresh_token(request: Request, response: Response):
     access = create_access_token(user["id"], user["email"])
     refresh = create_refresh_token(user["id"])
     set_auth_cookies(response, access, refresh)
-    return _public(user)
+    return _auth_response(user, access, refresh)
 
 
 # ---------------------------------------------------------------------------- #
