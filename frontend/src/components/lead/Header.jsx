@@ -7,24 +7,26 @@ export const Header = ({ children }) => {
       className="border-b border-neutral-200 bg-white"
       data-testid="app-header"
     >
-      <div className="mx-auto max-w-7xl px-6 md:px-12 py-6 flex items-center justify-between gap-6">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 bg-neutral-900 text-white flex items-center justify-center">
-            <Crosshair size={22} weight="bold" />
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 md:px-12 py-5 md:py-6 flex flex-wrap items-center justify-between gap-3 sm:gap-6">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="h-9 w-9 sm:h-10 sm:w-10 bg-neutral-900 text-white flex items-center justify-center shrink-0">
+            <Crosshair size={20} weight="bold" />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-neutral-500">
               v0.1 · MVP
             </p>
             <h1
-              className="font-heading text-xl font-extrabold tracking-tight text-neutral-900 leading-none"
+              className="font-heading text-lg sm:text-xl font-extrabold tracking-tight text-neutral-900 leading-none truncate"
               data-testid="app-title"
             >
               Startup Lead Finder
             </h1>
           </div>
         </div>
-        <div className="flex items-center gap-3">{children}</div>
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end w-full sm:w-auto">
+          {children}
+        </div>
       </div>
     </header>
   );
