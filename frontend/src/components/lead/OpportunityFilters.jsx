@@ -162,6 +162,24 @@ export const OpportunityFilters = ({
           </Select>
         </Field>
 
+        <Field label="Freshness">
+          <Select
+            value={filters.freshness || ANY}
+            onValueChange={(v) => update("freshness", v === ANY ? "" : v)}
+          >
+            <SelectTrigger className={selectClass} data-testid="filter-freshness-select">
+              <SelectValue placeholder="Any time" />
+            </SelectTrigger>
+            <SelectContent className="rounded-none">
+              <SelectItem value={ANY}>Any time</SelectItem>
+              <SelectItem value="24h" data-testid="filter-freshness-24h">Last 24 hours</SelectItem>
+              <SelectItem value="3d" data-testid="filter-freshness-3d">Last 3 days</SelectItem>
+              <SelectItem value="7d" data-testid="filter-freshness-7d">Last 7 days</SelectItem>
+              <SelectItem value="30d" data-testid="filter-freshness-30d">Last 30 days</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+
         <Field label="Sort by">
           <Select
             value={filters.sort}

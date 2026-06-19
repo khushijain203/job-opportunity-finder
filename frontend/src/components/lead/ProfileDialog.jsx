@@ -13,6 +13,7 @@ import { Textarea } from "../ui/textarea";
 import { Label } from "../ui/label";
 import { toast } from "sonner";
 import { profileApi, formatApiErrorDetail } from "../../lib/api";
+import { ResumeSection } from "./ResumeSection";
 
 const inputClass =
   "rounded-none border-neutral-300 focus-visible:ring-1 focus-visible:ring-[#002FA7] focus-visible:ring-offset-0 h-10 text-sm";
@@ -186,6 +187,13 @@ export const ProfileDialog = ({ open, onClose }) => {
                 className={textareaClass}
                 disabled={loading}
               />
+            </div>
+
+            <div className="space-y-3 sm:col-span-2 pt-2 border-t border-neutral-200">
+              <Label className="text-xs uppercase tracking-wider text-neutral-600 font-semibold">
+                Resume
+              </Label>
+              <ResumeSection />
             </div>
           </div>
 

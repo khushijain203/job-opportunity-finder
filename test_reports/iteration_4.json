@@ -1,0 +1,66 @@
+{
+  "summary": "Phase 3B end-to-end testing complete. Backend: 22/22 NEW pytest cases PASS in /app/backend/tests/test_resumes_and_matches.py covering resume upload (401/415/400/201), .txt parsing extracts Python/SQL/Selenium/Pandas/FastAPI skills, raw text stored in separate resume_texts collection (raw_text_chars > 100), second upload toggles is_active correctly, GET /resumes /resumes/active /activate /delete work as specified, first-resume autosaves profile.skills, opportunities/meta returns freshness_windows=['24h','3d','7d','30d'], invalid '99h' returns 422, freshness=24h filters by date_posted/date_found, new nullable fields (date_posted/last_verified/freshness_score) present in responses, GET /matches/opportunity returns null when no resume and full MatchResult with breakdown (matched_skills, missing_skills, extra_skills, skill_score, role_relevance + explanation, experience_relevance + explanation, location_relevance + explanation) when resume exists, ?tfidf=true populates tfidf_score and is cached, /matches/batch returns BatchMatchItem rows with matched_count/missing_count, cross-user GET returns 404, deleting active resume invalidates cached matches, REAL Claude calls to POST /resumes/{id}/enrich and POST /matches/opportunity/{id}/ai both work AND a SECOND call returns identical ai_enriched_at (cached, no new LLM call). Phase 3A regression: 25/25 still PASS. Frontend Playwright: register, profile dialog, resume-section + dropzone, resume-file-input upload, resume-item-<id>, resume-skills-<id> chips, resume-enrich-btn-<id>, freshness select with 24h option filters list, are ALL working. CRITICAL UI GAP: the Match column does NOT render the percentage badges because (a) the <thead> in OpportunitiesTable.jsx lists only 8 columns (Match column header missing) while <tbody> renders 9 <td> cells, mis-aligning columns; and (b) OpportunitiesView.jsx never calls resumesApi.active() or matchesApi.batch(), so hasResume stays false and matchSummary stays {} — every row falls back to <match-badge-no-resume-id> dash. As a result the spec-required match-badge-<id>, match-details-<id>, match-tfidf-btn-<id>, match-ai-btn-<id> selectors are unreachable through normal flow.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "OpportunitiesTable.jsx",
+        "issue": "<thead> defines 8 column headers but <tbody> renders 9 <td> cells (MatchBadge cell inserted after Role/Company at line 204). Add a 'Match' entry to the header array (line 152-160) right after 'Role / Company' so columns align AND the Match column has a visible label.",
+        "selector": "table[data-testid='opportunities-table'] thead th",
+        "priority": "HIGH"
+      },
+      {
+        "component": "OpportunitiesView.jsx",
+        "issue": "hasResume is initialised to false (line 42) and matchSummary to {} (line 41) but NEITHER is ever updated. There is no call to resumesApi.active() to set hasResume and no call to matchesApi.batch(opportunity_ids) to populate matchSummary. Result: every row renders match-badge-no-resume-<id> instead of match-badge-<id>, breaking the entire match-score UX (badge, popover, TF-IDF compute, AI insight).",
+        "selector": "[data-testid^='match-badge-']:not([data-testid*='no-resume'])",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "OpportunitiesView.jsx (orphan code)",
+        "issue": "FIXED BY TESTING AGENT - file previously had 18 lines of duplicated/orphan JSX after the component closing `};` at line 168 (SyntaxError: Unexpected token at line 169:21), which prevented the frontend from compiling at all (Compiled with problems: Module build failed). Removed the orphan block; webpack rebuilt cleanly. Main agent should review the merge that introduced the duplication.",
+        "selector": "n/a",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Resume → Match badge",
+        "issue": "Backend /api/matches/batch + /api/resumes/active are correct and return data, but the frontend never invokes them, so the integration is broken on the UI side only.",
+        "affected_selectors": ["[data-testid^='match-badge-']", "[data-testid^='match-details-']"]
+      }
+    ],
+    "design_issues": [
+      {"screen": "Find Opportunities table", "issues": ["Because Match column header is missing, the table is misaligned: TYPE column shows the MatchBadge dash above the actual Internship/Hybrid text; all subsequent columns are visually offset by one cell."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_resumes_and_matches.py",
+    "/app/backend/tests/test_auth_and_isolation.py",
+    "/app/test_reports/pytest/resumes_matches.xml"
+  ],
+  "action_items": [
+    "OpportunitiesView.jsx: add useEffect that calls resumesApi.active() to set hasResume(!!resume), and another useEffect (triggered when opps changes) that calls matchesApi.batch({opportunity_ids: opps.map(o=>o.id)}) and maps the result into matchSummary keyed by opportunity_id ({overall_score, jaccard_score, skill_score, matched_count, missing_count}). Trigger refetch after a successful resume upload (e.g., listen for an onResumeChanged event from ProfileDialog or call from handleSeed/handleChanged).",
+    "OpportunitiesTable.jsx (line ~152): insert 'Match' into the header array so the 9 body cells line up with 9 header cells.",
+    "Code review: there was orphan JSX after the component close in OpportunitiesView.jsx that the testing agent removed to unblock the build. Inspect the git diff to ensure no real code was lost."
+  ],
+  "critical_code_review_comments": [
+    "OpportunitiesView.jsx maintains matchSummary + hasResume state but never fetches them — dead code path leading to broken UX. Add the two missing fetch effects.",
+    "OpportunitiesTable.jsx hard-codes column count in <thead>; consider deriving headers from a single source array to avoid future mismatches.",
+    "matches.py _compute caches but the cache key includes only (user_id, resume_id, opportunity_id) — when profile.preferred_roles/locations changes the cached score is stale. Consider profile.updated_at in the cache key OR invalidate match_results on profile PUT (low priority).",
+    "resumes.py upload deletes ALL match_results for the user on every upload (line 107) — heavy when batch matching has been done. Could scope to the previous active resume only (low priority perf).",
+    "ResumePublic does not expose ai_summary directly — only via parsed.ai_summary. ResumeSection.jsx uses parsed.ai_summary so it works, but consider promoting for clarity.",
+    "server.py still uses deprecated @app.on_event hooks (carried over). Migrate to lifespan handler.",
+    "Both LLM routes parse JSON with greedy regex `\\{.*\\}` which can fail if the model wraps in code fences. Consider stripping ```json fences first."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_resumes_and_matches.py (new — 22 pytest cases for Phase 3B)",
+    "/app/frontend/src/components/lead/OpportunitiesView.jsx (removed 18 lines of orphan duplicate JSX after component close that was breaking the webpack build)"
+  ],
+  "success_rate": {"backend": "100% (22/22 new + 25/25 regression = 47/47)", "frontend": "75% — resume upload + parsing + freshness filter work; Match column missing/misaligned and matchSummary never fetched so AI/TFIDF UI is unreachable"},
+  "test_credentials": "Demo: demo@leadfinder.app / Demo1234!. TEST_ prefixed users were created during the run and are kept (TEST_3b_a_*, TEST_3b_b_*, TEST_3bui_*) — safe to leave or purge.",
+  "seed_data_creation": "Each TEST_ user calls POST /api/opportunities/seed to get the 5 sample opportunities; uploads a small generated .txt resume containing Python/SQL/Selenium/Pandas/FastAPI to validate skill mining. Object storage uploads completed in 1-3s as expected.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 22 backend tests in test_resumes_and_matches.py + 25 regression tests in test_auth_and_isolation.py PASS (47/47). The only outstanding work is the frontend Match-column wiring in OpportunitiesView.jsx — backend endpoints (/api/resumes/active, /api/matches/batch, /api/matches/opportunity/{id}, /api/matches/opportunity/{id}/ai) all verified working via pytest. Once OpportunitiesView fetches active resume + batch matches and pushes them into the table, the badge/popover/TFIDF/AI flow should immediately light up because MatchBadge.jsx, all match-* data-testids, and the API client are already correct.",
+  "rca of the issue": "(1) Webpack build failure: OpportunitiesView.jsx had duplicate JSX pasted after the component's closing `};` (lines 169-186), producing 'SyntaxError: Unexpected token (169:21)' which made the frontend serve only the CRA error overlay. Removed the duplicate block — restored clean build. (2) Match column unreachable: OpportunitiesView.jsx declares matchSummary/hasResume state but has no useEffect to populate them. resumesApi and matchesApi exist in /app/frontend/src/lib/api.js and the backend endpoints are validated via pytest. Reproduction: register a new user, upload a .txt resume in Profile, go to Find Opportunities, seed sample data — every row shows a `—` placeholder rendered by `match-badge-no-resume-<opp_id>` rather than the percentage badge. (3) Header mismatch: <thead> header array has 8 entries but each <tr> has 9 <td>, so the Match column has no label and visually pushes columns out of alignment. Fix actions are listed under action_items."
+}

@@ -20,9 +20,12 @@ from models.user import User  # noqa: E402
 from routes.auth import router as auth_router  # noqa: E402
 from routes.companies import router as companies_router  # noqa: E402
 from routes.generated_emails import router as generated_emails_router  # noqa: E402
+from routes.matches import router as matches_router  # noqa: E402
 from routes.opportunities import router as opportunities_router  # noqa: E402
 from routes.outreach import router as outreach_router  # noqa: E402
 from routes.profile import router as profile_router  # noqa: E402
+from routes.resumes import router as resumes_router  # noqa: E402
+from core.storage import init_storage  # noqa: E402
 
 # --- Mongo --------------------------------------------------------------------
 mongo_url = os.environ["MONGO_URL"]
@@ -53,6 +56,8 @@ api_router.include_router(companies_router)
 api_router.include_router(opportunities_router)
 api_router.include_router(outreach_router)
 api_router.include_router(generated_emails_router)
+api_router.include_router(resumes_router)
+api_router.include_router(matches_router)
 
 app.include_router(api_router)
 
@@ -106,6 +111,18 @@ async def _startup() -> None:
     await db.profiles.create_index("user_id", unique=True)
     await db.generated_emails.create_index("user_id")
     await db.generated_emails.create_index("opportunity_id")
+    await db.resumes.create_index("user_id")
+    await db.resumes.create_index([("user_id", 1), ("is_active", 1)])
+    await db.resume_texts.create_index("resume_id", unique=True)
+    await db.match_results.create_index(
+        [("user_id", 1), ("resume_id", 1), ("opportunity_id", 1)], unique=True
+    )
+
+    # Object storage init (non-fatal if it fails — uploads will surface the error).
+    try:
+        init_storage()
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Object storage init failed: %s", exc)
 
     await _seed_demo_user()
     logger.info("Startup Lead Finder API ready")

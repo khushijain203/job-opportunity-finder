@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -125,6 +125,7 @@ def _build_query(
     employment_type: Optional[str],
     work_mode: Optional[str],
     status: Optional[str],
+    freshness: Optional[str] = None,
 ) -> dict:
     q: dict = {"user_id": user_id}
     if search:
@@ -141,6 +142,16 @@ def _build_query(
         q["status"] = status
     if skills:
         q["skills"] = {"$in": [re.compile(re.escape(s), re.IGNORECASE) for s in skills if s.strip()]}
+    if freshness:
+        windows = {"24h": 1, "3d": 3, "7d": 7, "30d": 30}
+        days = windows.get(freshness)
+        if days:
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+            # Use date_posted if present, else date_found.
+            q["$or"] = [
+                {"date_posted": {"$gte": cutoff}},
+                {"date_posted": {"$in": [None, ""]}, "date_found": {"$gte": cutoff}},
+            ]
     return q
 
 
@@ -156,6 +167,9 @@ SORT_MAP = {
 # ---------------------------------------------------------------------------- #
 # Endpoints
 # ---------------------------------------------------------------------------- #
+FRESHNESS_WINDOWS = ("24h", "3d", "7d", "30d")
+
+
 @router.get("/meta")
 async def meta():
     return {
@@ -163,6 +177,7 @@ async def meta():
         "work_modes": list(WORK_MODES),
         "statuses": list(STATUSES),
         "sort_options": list(SORT_MAP.keys()),
+        "freshness_windows": list(FRESHNESS_WINDOWS),
     }
 
 
@@ -176,17 +191,19 @@ async def list_opportunities(
     employment_type: Optional[str] = Query(default=None),
     work_mode: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
+    freshness: Optional[str] = Query(default=None),
     sort: str = Query(default="newest"),
     user: dict = Depends(get_current_user),
 ):
     _validate_enum(employment_type, EMPLOYMENT_TYPES, "employment_type")
     _validate_enum(work_mode, WORK_MODES, "work_mode")
     _validate_enum(status, STATUSES, "status")
+    _validate_enum(freshness, FRESHNESS_WINDOWS, "freshness")
     if sort not in SORT_MAP:
         raise HTTPException(status_code=422, detail=f"Invalid sort. Use one of {list(SORT_MAP)}.")
 
     db = _db(request)
-    q = _build_query(user["id"], search, role, location, skills, employment_type, work_mode, status)
+    q = _build_query(user["id"], search, role, location, skills, employment_type, work_mode, status, freshness)
     cursor = db.opportunities.find(q, {"_id": 0}).sort(SORT_MAP[sort]).limit(1000)
     docs = await cursor.to_list(length=1000)
     return [Opportunity(**d) for d in docs]

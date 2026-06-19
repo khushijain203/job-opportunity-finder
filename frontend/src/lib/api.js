@@ -93,6 +93,41 @@ export const generatedEmailsApi = {
 };
 
 // ---------------------------------------------------------------------------- //
+// Resumes
+// ---------------------------------------------------------------------------- //
+export const resumesApi = {
+  list: async () => (await http.get("/resumes")).data,
+  active: async () => (await http.get("/resumes/active")).data,
+  upload: async (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return (await http.post("/resumes/upload", fd)).data;
+  },
+  activate: async (id) => (await http.post(`/resumes/${id}/activate`)).data,
+  remove: async (id) => {
+    await http.delete(`/resumes/${id}`);
+  },
+  enrich: async (id) => (await http.post(`/resumes/${id}/enrich`)).data,
+  downloadUrl: (id) => `${API_BASE}/resumes/${id}/download`,
+};
+
+// ---------------------------------------------------------------------------- //
+// Match scores
+// ---------------------------------------------------------------------------- //
+export const matchesApi = {
+  forOpportunity: async (oppId, { tfidf = false } = {}) =>
+    (await http.get(`/matches/opportunity/${oppId}`, { params: tfidf ? { tfidf: true } : {} })).data,
+  batch: async (opportunityIds) => {
+    if (!opportunityIds || opportunityIds.length === 0) return [];
+    return (await http.get("/matches/batch", {
+      params: { opportunity_ids: opportunityIds },
+      paramsSerializer: { indexes: null },
+    })).data;
+  },
+  aiFor: async (oppId) => (await http.post(`/matches/opportunity/${oppId}/ai`)).data,
+};
+
+// ---------------------------------------------------------------------------- //
 // Helpers
 // ---------------------------------------------------------------------------- //
 export function formatApiErrorDetail(detail) {

@@ -26,6 +26,7 @@ const initialFilters = {
   employment_type: "",
   work_mode: "",
   status: "",
+  freshness: "",
   sort: "newest",
 };
 
@@ -37,6 +38,8 @@ export const OpportunitiesView = ({ onLeadsChanged }) => {
   const [opps, setOpps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
+  const [matchSummary, setMatchSummary] = useState({});
+  const [hasResume, setHasResume] = useState(false);
 
   const [emailFor, setEmailFor] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
@@ -142,6 +145,8 @@ export const OpportunitiesView = ({ onLeadsChanged }) => {
         opportunities={opps}
         loading={loading}
         meta={meta}
+        matchSummary={matchSummary}
+        hasResume={hasResume}
         onChanged={handleChanged}
         onGenerateEmail={(opp) => setEmailFor(opp)}
         onShowHistory={(opp) => setHistoryFor(opp)}

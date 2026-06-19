@@ -33,6 +33,7 @@ class OpportunityCreate(BaseModel):
     company_website: Optional[str] = Field(default=None, max_length=500)
     contact_email: Optional[EmailStr] = None
     description: Optional[str] = Field(default=None, max_length=4000)
+    date_posted: Optional[str] = Field(default=None, description="ISO date when the opportunity was originally posted")
 
 
 class OpportunityStatusUpdate(BaseModel):
@@ -55,4 +56,7 @@ class Opportunity(BaseModel):
     contact_email: Optional[str] = None
     description: Optional[str] = None
     date_found: str = Field(default_factory=_now_iso)
+    date_posted: Optional[str] = None
+    last_verified: Optional[str] = None
+    freshness_score: Optional[float] = None  # 0..1 — set by ingestion pipelines (future)
     status: str = "New"

@@ -27,6 +27,7 @@ import {
 } from "../ui/alert-dialog";
 import { toast } from "sonner";
 import { opportunitiesApi } from "../../lib/api";
+import { MatchBadge } from "./MatchBadge";
 
 const STATUS_COLORS = {
   New: "bg-neutral-100 text-neutral-700 border-neutral-300",
@@ -54,6 +55,8 @@ export const OpportunitiesTable = ({
   opportunities,
   loading,
   meta,
+  matchSummary = {},
+  hasResume = false,
   onChanged,
   onGenerateEmail,
   onShowHistory,
@@ -197,6 +200,13 @@ export const OpportunitiesTable = ({
                           Apply <ArrowSquareOut size={10} weight="bold" />
                         </a>
                       )}
+                    </td>
+                    <td className="px-4 py-4">
+                      <MatchBadge
+                        opportunityId={opp.id}
+                        hasResume={hasResume}
+                        summary={matchSummary[opp.id]}
+                      />
                     </td>
                     <td className="px-4 py-4 text-xs">
                       <div className="font-semibold text-neutral-700">
