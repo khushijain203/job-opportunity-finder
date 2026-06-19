@@ -20,6 +20,7 @@ from models.user import User  # noqa: E402
 from routes.auth import router as auth_router  # noqa: E402
 from routes.companies import router as companies_router  # noqa: E402
 from routes.generated_emails import router as generated_emails_router  # noqa: E402
+from routes.ingestion import router as ingestion_router  # noqa: E402
 from routes.matches import router as matches_router  # noqa: E402
 from routes.opportunities import router as opportunities_router  # noqa: E402
 from routes.outreach import router as outreach_router  # noqa: E402
@@ -58,6 +59,7 @@ api_router.include_router(outreach_router)
 api_router.include_router(generated_emails_router)
 api_router.include_router(resumes_router)
 api_router.include_router(matches_router)
+api_router.include_router(ingestion_router)
 
 app.include_router(api_router)
 
@@ -108,6 +110,7 @@ async def _startup() -> None:
     await db.opportunities.create_index("id", unique=True)
     await db.opportunities.create_index("user_id")
     await db.opportunities.create_index("date_found")
+    await db.opportunities.create_index([("user_id", 1), ("source", 1), ("source_id", 1)])
     await db.profiles.create_index("user_id", unique=True)
     await db.generated_emails.create_index("user_id")
     await db.generated_emails.create_index("opportunity_id")

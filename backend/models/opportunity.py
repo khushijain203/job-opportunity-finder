@@ -29,6 +29,8 @@ class OpportunityCreate(BaseModel):
     work_mode: Optional[str] = Field(default=None, description="Remote | Hybrid | Onsite")
     skills: List[str] = Field(default_factory=list)
     source: Optional[str] = Field(default=None, max_length=200)
+    source_id: Optional[str] = Field(default=None, max_length=200)
+    source_url: Optional[str] = Field(default=None, max_length=1000)
     apply_link: Optional[str] = Field(default=None, max_length=1000)
     company_website: Optional[str] = Field(default=None, max_length=500)
     contact_email: Optional[EmailStr] = None
@@ -51,6 +53,10 @@ class Opportunity(BaseModel):
     work_mode: Optional[str] = None
     skills: List[str] = Field(default_factory=list)
     source: Optional[str] = None
+    source_id: Optional[str] = None
+    source_url: Optional[str] = None
+    raw_payload: Optional[dict] = None  # original ingested payload (audit / re-parse)
+    ingested_at: Optional[str] = None
     apply_link: Optional[str] = None
     company_website: Optional[str] = None
     contact_email: Optional[str] = None

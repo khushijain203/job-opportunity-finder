@@ -1,0 +1,49 @@
+{
+  "summary": "Phase 4A Opportunity Ingestion - backend tested end-to-end against the live preview URL with 2 fresh registered users + 1 user with active resume. 20/21 new tests PASS. Verified: 6 adapters listed (manual/linkedin/naukri/indeed/career_page/startup_discovery) with full shape; single-ingest for linkedin (normalizes workplaceType='remote'→'Remote', employment_type→'Full Time', source_id from payload.id) and manual (no source_id); 422 on unknown source + missing required fields; duplicate by (source, source_id) returns {status:'duplicate', duplicate_of:<id>} with no new row; duplicate by (company+role) fallback when no source_id; bulk endpoint returns the correct shape with in-batch dedupe (3 items, 1 repeated id → created=2/duplicates=1/errors=0) and items with bad shape land as 'error'; auto-match returns matches_computed=0 with no resume, =N for N≤25 with active resume (verified via /matches/batch shows non-zero skill_score against a Python/FastAPI/SQL resume), and matches_scheduled=true with matches_computed=0 for a 26-item batch (background task completed within ~15s); userB does NOT see userA's ingested opp via /opportunities and ingesting the same external_id under userB creates a new row (data isolation intact); source-specific normalization works for linkedin (jobTitle/companyName/workplaceType), naukri (designation/keySkills semicolon-split), indeed (jobtitle/company/job_type); regression for /opportunities/seed, /matches/batch (GET with query opportunity_ids), /resumes/active all pass. ONE failure: GET /api/ingest/sources is currently UNPROTECTED (returns 200 without auth) while spec requires 401 — flagged for main agent.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/ingest/sources",
+        "issue": "Route is missing Depends(get_current_user); spec requires 401 without a token but it returns 200. One-line fix: add `user: dict = Depends(get_current_user)` to the get_sources signature in /app/backend/routes/ingestion.py (line 111)."
+      },
+      {
+        "endpoint": "POST /api/auth/login + /api/auth/register",
+        "issue": "Response shape was changed to {user, access_token, refresh_token, token_type} (nested user). Cookies still set, so most code paths work, but pre-existing test_auth_and_isolation.py asserts top-level `email`/`is_demo` and now fails on 2 of 25 tests. Either revert to flat shape OR update test_auth_and_isolation.py to read body['user']['email']. Functionality itself is fine."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_ingestion.py",
+    "/app/test_reports/pytest/ingestion.xml",
+    "/app/test_reports/pytest/regression.xml"
+  ],
+  "action_items": [
+    "Add `Depends(get_current_user)` to GET /api/ingest/sources in /app/backend/routes/ingestion.py to enforce auth (spec deviation).",
+    "Decide on auth response shape: either restore flat user-as-body OR update /app/backend/tests/test_auth_and_isolation.py:110,138 to read body['user']['email'] / body['user']['is_demo'] (the change to {user, access_token, refresh_token, token_type} is documented in the review note, so most likely just update the legacy tests).",
+    "[Carry-over, low priority] matches.py cache key omits profile.updated_at — stale cached scores when preferred_roles/locations change.",
+    "[Carry-over, low priority] resumes.py upload deletes ALL match_results for the user; scope to previous active resume only.",
+    "[Carry-over, low priority] server.py uses deprecated @app.on_event hooks — migrate to FastAPI lifespan handler.",
+    "[Carry-over, low priority] match AI/resume enrich routes parse JSON with greedy `\\{.*\\}` regex — strip ```json fences first."
+  ],
+  "critical_code_review_comments": [
+    "ingestion.py: import of services.ingestion.dedupe.dedupe_key is performed inside the bulk loop (line 169) on every iteration — move to module-level import for clarity/perf.",
+    "ingestion.py: in-batch duplicates set duplicate_of=None even when the *same* batch's prior row was created and its opportunity_id is known. Consider tracking key→opportunity_id so the response carries duplicate_of for in-batch dupes too (minor UX improvement).",
+    "base.py SourceAdapter._base: silently coerces unknown employment_type values to 'Full Time' inside _norm_employment_type AND again in _strip_enums. The fallback hides genuinely bad upstream data (e.g. 'Contract' becomes 'Full Time' without any indication). Consider surfacing as a warning in raw_payload metadata.",
+    "dedupe.py find_duplicate: when source is empty/None but source_id is present, the strong key branch is skipped (`if src and sid`). For sources that omit a canonical key but supply source_id, this silently downgrades to company+role match. Probably fine but worth a comment.",
+    "Opportunity model: raw_payload is stored unbounded — a malicious or noisy upstream could blow up the document size. Consider truncating raw_payload to e.g. 32 KB before persistence.",
+    "ingestion.py: GET /sources currently has no auth dependency (spec deviation, already listed as a bug)."
+  ],
+  "updated_files": ["/app/backend/tests/test_ingestion.py (new)"],
+  "success_rate": {
+    "backend": "95% (20/21 Phase 4A ingestion tests pass; the only failure is the GET /ingest/sources auth bug)",
+    "frontend": "N/A (Phase 4A is backend-only by spec)"
+  },
+  "test_credentials": "Demo: demo@leadfinder.app / Demo1234!. Tests also dynamically register TEST_a_*, TEST_b_*, TEST_res_* users on each run.",
+  "seed_data_creation": "Tests create ~70 TEST_-prefixed opportunities across 3 ephemeral users per run via /api/ingest/opportunity, /api/ingest/opportunities and /api/opportunities/seed. The user_resume fixture also uploads a small text resume (Python/SQL/Pandas/FastAPI/AWS/Docker) so auto-match returns non-zero skill scores. No production/demo data modified.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run with `REACT_APP_BACKEND_URL=$(grep '^REACT_APP_BACKEND_URL=' /app/frontend/.env | cut -d= -f2-) python -m pytest backend/tests/test_ingestion.py`. Auth response is now nested under 'user' — when authoring new tests use cookies (already wired in the test file) or read body['user']. /matches/batch is GET with repeated `opportunity_ids` query params, not POST. SYNC_MATCH_BATCH_LIMIT=25 (>25 created opps → background task). test_opportunities_outreach.py is pre-auth and intentionally fails (21 unauthenticated tests) — it's not a Phase 4A regression; either delete it or update it to use the authenticated_client pattern from test_auth_and_isolation.py.",
+  "rca of the issue": "GET /api/ingest/sources missing-auth bug: in /app/backend/routes/ingestion.py line 110-112 the route is defined without `user: dict = Depends(get_current_user)`. Every other ingestion endpoint correctly depends on get_current_user (lines 120 and 147). Likely an oversight during initial implementation since /sources is metadata-only. Spec explicitly requires 401 without token. Reproduction: `curl -i $REACT_APP_BACKEND_URL/api/ingest/sources` → 200 + adapters list. Fix: append `user: dict = Depends(get_current_user)` to get_sources signature."
+}
