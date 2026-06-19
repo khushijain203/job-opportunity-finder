@@ -1,89 +1,73 @@
 # Startup Lead Finder — PRD
 
 ## Original Problem Statement
-Build a full-stack web application called Startup Lead Finder; iteratively upgrade to an **Opportunity Discovery Platform** with **multi-user auth + per-user data isolation**.
+Build a Startup Lead Finder; iteratively upgrade to an **Opportunity Discovery Platform** with multi-user auth, resume parsing, and AI-assisted match scoring + outreach.
 
-## User Choices (locked-in)
+## User Choices (locked-in across phases)
 * DB: MongoDB
-* UI: Clean & minimal SaaS-style (kept across phases; not redesigned in 3A)
+* UI: Clean & minimal SaaS-style — kept unchanged across phases
 * Leads CSV export
 * LLM: Claude Sonnet 4.5 via emergentintegrations + EMERGENT_LLM_KEY
-* Auth: JWT in HTTP-only cookie (samesite=lax, secure=true), bcrypt + policy (≥8 chars, 1 upper + 1 lower + 1 digit)
+* Auth: JWT in HTTP-only cookie (samesite=lax, secure=true), bcrypt + policy
+* Resume parsing: **local PDF/DOCX extraction** by default; AI enrichment opt-in & cached
+* Match scoring: **Weighted Jaccard** default + **TF-IDF** advanced view; **AI nuance** opt-in & cached per (resume, opportunity)
 * Migration: orphan records assigned to FIRST registered (non-demo) user
-* Generated emails: persisted automatically + per-opportunity History view
-* Demo user seeded for testing: `demo@leadfinder.app / Demo1234!`
 
 ## Architecture
 ```
 backend/
-  core/security.py             -> bcrypt, JWT, cookies, get_current_user dep
-  models/user.py               -> User, UserRegister, UserLogin, UserPublic, Profile, ProfileUpdate
-  models/company.py            -> Company schemas
-  models/opportunity.py        -> Opportunity schemas + enum tuples
-  routes/auth.py               -> register/login/logout/refresh/me + orphan migration
-  routes/profile.py            -> GET/PUT /api/profile
-  routes/companies.py          -> Leads CRUD scoped by user_id + stats + CSV export
-  routes/opportunities.py      -> Opportunities CRUD/filters/sort/save-to-leads/per-user seed
-  routes/outreach.py           -> Claude Sonnet 4.5 email gen, persists to generated_emails
-  routes/generated_emails.py   -> list/delete generated emails for current user
-  server.py                    -> FastAPI app, CORS w/ credentials, demo user seed, indexes
+  core/security.py         -> bcrypt, JWT, get_current_user
+  core/storage.py          -> Emergent object-storage wrapper (resumes)
+  services/resume_parser.py-> pypdf + python-docx + regex section parser
+  services/match_score.py  -> Jaccard + TF-IDF + breakdown w/ explanations
+  models/                  -> user, company, opportunity (incl. freshness), resume, match
+  routes/                  -> auth, profile, companies, opportunities (w/ freshness), outreach, generated_emails, resumes, matches
+  server.py                -> FastAPI bootstrap, indexes, demo seed, object-storage init
+
 frontend/src/
   contexts/AuthContext.jsx
-  components/auth/AuthPage.jsx           -> login + register tabbed form
-  components/auth/AuthGate.jsx           -> wraps the app
-  components/lead/Header.jsx             -> user name + Log out + Profile button
-  components/lead/ProfileDialog.jsx      -> skills / years / roles / locations / bio
-  components/lead/EmailHistoryDialog.jsx -> per-opportunity outreach history
-  components/lead/LeadsView.jsx
-  components/lead/OpportunitiesView.jsx
-  components/lead/OpportunitiesTable.jsx -> per-row Email + History + Save + Delete
-  components/lead/AddOpportunityDialog.jsx
-  components/lead/AddCompanyDialog.jsx
-  components/lead/GenerateEmailDialog.jsx
-  components/lead/LeadFinder.jsx         -> Leads / Find Opportunities tabs
-  lib/api.js                             -> axios w/ withCredentials, all API namespaces
+  components/auth/         -> AuthPage + AuthGate
+  components/lead/
+    Header.jsx                -> user name + Profile + Logout
+    ProfileDialog.jsx          -> profile + embedded ResumeSection
+    ResumeSection.jsx          -> drag/drop, list, activate, delete, AI enhance
+    MatchBadge.jsx             -> score badge + breakdown popover + TF-IDF + AI insight
+    OpportunityFilters.jsx     -> + new "Freshness" filter (24h/3d/7d/30d)
+    OpportunitiesTable.jsx     -> + new Match column
+    OpportunitiesView.jsx      -> calls matchesApi.batch, listens 'resume-changed' window event
+    LeadFinder.jsx             -> Leads / Find Opportunities tabs
+  lib/api.js                 -> all API namespaces incl. resumesApi + matchesApi
 ```
 
-## User Personas
-* Job seekers tracking opportunities + generating personalized outreach
-* SDRs / founders managing private startup-lead pipelines, isolated per user
-
 ## Implemented Phases
-
-### Phase 1 (2026-02): Leads MVP
-Companies CRUD, search, CSV export, stats summary, Swiss/SaaS UI.
-
-### Phase 2 (2026-02): Opportunity Discovery
-Opportunity model + filters/sort, save-to-leads, AI outreach generation (Claude Sonnet 4.5), tabbed UI.
-
-### Phase 3A (2026-02): Auth + User Isolation ✅
-* JWT in HTTP-only cookies (12h access + 14d refresh)
-* bcrypt + policy
-* `/api/auth/register|login|logout|refresh|me`
-* User model: full_name, email, password_hash, created_at, is_demo
-* Profile model (full_name, skills[], years_experience, preferred_roles[], preferred_locations[], bio) for upcoming resume-matching
-* Every Lead, Opportunity, GeneratedEmail scoped to its `user_id`
-* Cross-user PATCH/DELETE returns 404
-* Orphan migration: first registered (non-demo) user claims all pre-existing records (one-shot via `system_state.orphan_migration_v1`)
-* Demo user seeded on startup
-* Generated emails auto-persisted; per-opportunity history dialog with copy + delete
-* Tests: 25/25 backend pytest pass (auth, isolation, migration, LLM, profile)
+- **Phase 1 (2026-02)**: Leads CRUD + CSV export + Swiss/SaaS UI
+- **Phase 2 (2026-02)**: Opportunity Discovery + filters + AI outreach (Claude Sonnet 4.5)
+- **Phase 3A (2026-02)**: JWT cookie auth + bcrypt policy + per-user isolation + Profile model + generated_emails history + orphan migration ✅
+- **Phase 3B (2026-02)**: Resume Upload + Local Parsing + Match Score + Freshness Filters ✅
+  - 47/47 backend tests pass; 100% frontend e2e pass
+  - Object storage via Emergent for resume bytes
+  - Raw text stored in `resume_texts` collection (SEPARATE from parsed fields)
+  - Weighted Jaccard (default) + TF-IDF (advanced, opt-in) match scoring
+  - Match breakdown: matched/missing skills + role/experience/location relevance with explanations
+  - AI enrichment per resume — one Claude call, cached forever in `parsed.ai_*`
+  - AI match nuance per (resume, opp) — one Claude call, cached forever in `match_results.ai_*`
+  - Future-ready opp fields: `date_posted`, `last_verified`, `freshness_score`
+  - Freshness filters (Last 24h / 3d / 7d / 30d) ready to be activated by future ingestion
 
 ## Backlog
-### P1 (next phases per user)
-* Resume upload + parsing
-* AI match scoring (resume × opportunity)
-* Founder/recruiter email discovery
-* Gmail / Outlook integrations & automated sending
+### P1 (next phases per user roadmap)
+* Startup discovery / opportunity ingestion (career pages, job boards) populating `date_posted` + `freshness_score`
+* Gmail / Outlook integrations → send generated outreach directly
+* Resume re-parsing job (re-run section parser on existing raw_text without re-upload)
 
-### P2
+### P2 (polish + perf)
 * Application tracking dashboard
-* Tags / pipeline stages on leads
-* Forgot-password flow
-* Email verification on signup
-* Multi-tenant admin dashboard
+* Invalidate cached matches when profile.preferred_roles/locations change
+* Migrate `@app.on_event` to FastAPI lifespan
+* Tighter LLM JSON extraction (strip ```json fences)
+* Per-user "Outreach Stats" widget
 
 ## Next Action Items
-1. Phase 3B: Resume upload + parsing (PDF → structured profile data).
-2. Build a "Match Score" column on opportunities (resume × opportunity skills).
-3. Add Gmail OAuth for sending generated outreach emails directly.
+1. **Phase 4**: Job-discovery ingestion (career-page crawler + LinkedIn/Indeed scrape) to populate date_posted + freshness_score.
+2. Implement Gmail OAuth for sending outreach emails directly.
+3. Auto-refresh access token via axios refresh interceptor (currently re-login after 12h).
