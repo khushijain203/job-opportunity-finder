@@ -269,6 +269,14 @@ export const OpportunitiesTable = ({
                           Email
                         </button>
                         <button
+                          onClick={() => onShowHistory?.(opp)}
+                          title="View outreach history"
+                          className="inline-flex items-center justify-center h-8 w-8 border border-transparent text-neutral-500 hover:text-neutral-900 hover:border-neutral-400 transition-colors duration-150"
+                          data-testid={`opp-history-btn-${opp.id}`}
+                        >
+                          <ClockCounterClockwise size={14} weight="bold" />
+                        </button>
+                        <button
                           onClick={() => handleSaveToLeads(opp)}
                           disabled={busy[`${opp.id}-save`]}
                           title="Save to Leads"
