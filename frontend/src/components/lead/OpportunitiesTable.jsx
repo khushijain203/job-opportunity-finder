@@ -151,6 +151,7 @@ export const OpportunitiesTable = ({
             <tr className="border-b border-neutral-200 bg-neutral-50">
               {[
                 "Role / Company",
+                "Match",
                 "Type",
                 "Location",
                 "Skills",

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Database } from "@phosphor-icons/react";
 import { Button } from "../ui/button";
 import { toast } from "sonner";
-import { opportunitiesApi } from "../../lib/api";
+import { opportunitiesApi, resumesApi, matchesApi } from "../../lib/api";
 import { OpportunityFilters } from "./OpportunityFilters";
 import { OpportunitiesTable } from "./OpportunitiesTable";
 import { AddOpportunityDialog } from "./AddOpportunityDialog";
@@ -62,10 +62,28 @@ export const OpportunitiesView = ({ onLeadsChanged }) => {
         employment_type: debounced.employment_type,
         work_mode: debounced.work_mode,
         status: debounced.status,
+        freshness: debounced.freshness,
         skills,
         sort: debounced.sort,
       });
       setOpps(data);
+
+      // Check for active resume + batch-compute match scores in one round-trip.
+      try {
+        const active = await resumesApi.active();
+        setHasResume(!!active);
+        if (active && data.length > 0) {
+          const batch = await matchesApi.batch(data.map((o) => o.id));
+          const map = {};
+          for (const m of batch) map[m.opportunity_id] = m;
+          setMatchSummary(map);
+        } else {
+          setMatchSummary({});
+        }
+      } catch {
+        setHasResume(false);
+        setMatchSummary({});
+      }
     } catch {
       toast.error("Failed to load opportunities");
     } finally {
@@ -75,6 +93,13 @@ export const OpportunitiesView = ({ onLeadsChanged }) => {
 
   useEffect(() => {
     fetchOpps();
+  }, [fetchOpps]);
+
+  // Refetch when the resume changes (uploaded / activated / deleted in ProfileDialog).
+  useEffect(() => {
+    const handler = () => fetchOpps();
+    window.addEventListener("resume-changed", handler);
+    return () => window.removeEventListener("resume-changed", handler);
   }, [fetchOpps]);
 
   const handleSeed = async () => {

@@ -1,0 +1,29 @@
+{
+  "summary": "Re-tested frontend Match-column fix. Both iteration_4 bugs are FULLY RESOLVED. (1) OpportunitiesTable.jsx now renders 9 header cells aligned with 9 body cells — 'Match' header present right after 'Role / Company'. (2) OpportunitiesView.jsx now calls resumesApi.active() + matchesApi.batch() inside fetchOpps and listens for window 'resume-changed' event, so the Opportunities tab auto-refreshes after the user uploads/activates/deletes a resume in ProfileDialog. End-to-end verified against demo user: seed 5 opps → 5 match-badge-no-resume-<id> shown → upload Python/SQL/Pandas/Selenium/FastAPI .txt resume → ALL 5 badges auto-refresh to percentage badges (27%, 39%, 36%, 59%, 27%) with correct color hints (59% amber, others neutral). Popover for match-badge-<id> renders match-overall, match-missing, match-role-exp, match-exp-exp, match-loc-exp, match-tfidf-btn, match-ai-btn. Compute TF-IDF returned 2%. Get AI Insight returned AI score=45 + a real Claude summary in ~5s; reopening popover instantly shows the cached AI summary (no second LLM call). Freshness dropdown opens correctly showing Any time / Last 24 hours / Last 3 days / Last 7 days / Last 30 days. Phase 3A regression intact: outreach email dialog opens, history dialog opens, save-to-leads shows 'Saved to Leads' toast and the row appears in Leads tab, logout works.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_resumes_and_matches.py",
+    "/app/backend/tests/test_auth_and_isolation.py",
+    "/app/test_reports/pytest/resumes_matches.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Carry-over (low priority) from iteration_4: matches.py cache key omits profile.updated_at, so cached scores can be stale when preferred_roles/locations change. Consider invalidating match_results on PUT /profile.",
+    "Carry-over (low priority): resumes.py upload deletes ALL match_results for the user; could be scoped to previous active resume only for perf.",
+    "Carry-over (low priority): server.py still uses deprecated @app.on_event hooks — migrate to FastAPI lifespan handler.",
+    "Carry-over (low priority): match AI + resume enrich routes parse JSON with greedy `\\{.*\\}` regex; strip ```json fences first to be safer."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (47/47 from iteration_4 — not re-run as per request)", "frontend": "100% — all spec items verified including AI cache"},
+  "test_credentials": "Demo user: demo@leadfinder.app / Demo1234! (used as-is)",
+  "seed_data_creation": "Demo user re-seeded with 5 sample opportunities via POST /api/opportunities/seed. Uploaded a small .txt resume (Python, SQL, Pandas, Selenium, FastAPI, REST APIs, Git) under the demo user — left in place so the next agent can re-run with cached match results.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Frontend Match-column fix is fully verified end-to-end against the live preview URL. Demo user currently has one active resume + 5 seeded opportunities + at least one cached AI insight (opp id 0cb52f88-bbc6-42f3-b062-110cd4eea64a). No outstanding frontend bugs from this scope; the only remaining items are the low-priority code-quality carry-overs from iteration_4.",
+  "rca of the issue": "Both bugs from iteration_4 were confirmed fixed by direct UI behaviour: (a) table head now has 9 cells matching 9 body cells (verified by querySelector count); (b) badges go from match-badge-no-resume-<id> → match-badge-<id> immediately after resume upload without a manual reload, proving the 'resume-changed' window event listener wired in OpportunitiesView is correctly invalidating fetchOpps. No new RCA needed."
+}

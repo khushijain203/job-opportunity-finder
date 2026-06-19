@@ -56,6 +56,7 @@ export const ResumeSection = () => {
       const created = await resumesApi.upload(file);
       toast.success(`Uploaded "${created.original_filename}" · ${created.parsed?.skills?.length || 0} skills mined`);
       refresh();
+      window.dispatchEvent(new Event("resume-changed"));
     } catch (err) {
       toast.error(
         formatApiErrorDetail(err?.response?.data?.detail) || "Upload failed",
@@ -80,6 +81,7 @@ export const ResumeSection = () => {
       await resumesApi.activate(id);
       toast.success("Marked as active resume");
       refresh();
+      window.dispatchEvent(new Event("resume-changed"));
     } catch {
       toast.error("Activation failed");
     }
@@ -90,6 +92,7 @@ export const ResumeSection = () => {
       await resumesApi.remove(id);
       toast.success("Resume deleted");
       refresh();
+      window.dispatchEvent(new Event("resume-changed"));
     } catch {
       toast.error("Delete failed");
     }
