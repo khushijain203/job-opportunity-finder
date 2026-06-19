@@ -24,6 +24,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from starlette.middleware.cors import CORSMiddleware
 
 from routes.companies import router as companies_router
+from routes.opportunities import router as opportunities_router
+from routes.outreach import router as outreach_router
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -52,6 +54,8 @@ async def health():
 
 # Feature routers ----------------------------------------------------------------
 api_router.include_router(companies_router)
+api_router.include_router(opportunities_router)
+api_router.include_router(outreach_router)
 
 app.include_router(api_router)
 
@@ -77,6 +81,10 @@ async def _startup() -> None:
     # Helpful indexes for the search & sort patterns we use.
     await db.companies.create_index("id", unique=True)
     await db.companies.create_index("company_name")
+    await db.opportunities.create_index("id", unique=True)
+    await db.opportunities.create_index("company_name")
+    await db.opportunities.create_index("date_found")
+    await db.opportunities.create_index("status")
     logger.info("Startup Lead Finder API ready")
 
 

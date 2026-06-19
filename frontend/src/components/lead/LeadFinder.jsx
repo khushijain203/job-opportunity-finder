@@ -1,126 +1,57 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { MagnifyingGlass, DownloadSimple, X } from "@phosphor-icons/react";
-import { Input } from "../ui/input";
-import { Button } from "../ui/button";
-import { toast } from "sonner";
-import { companiesApi } from "../../lib/api";
+import React, { useState } from "react";
 import { Header } from "./Header";
-import { StatsBar } from "./StatsBar";
-import { AddCompanyDialog } from "./AddCompanyDialog";
-import { CompaniesTable } from "./CompaniesTable";
+import { LeadsView } from "./LeadsView";
+import { OpportunitiesView } from "./OpportunitiesView";
 
-const useDebounced = (value, delay = 250) => {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setV(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return v;
-};
+const TABS = [
+  { id: "leads", label: "Leads" },
+  { id: "opportunities", label: "Find Opportunities" },
+];
 
 export default function LeadFinder() {
-  const [companies, setCompanies] = useState([]);
-  const [stats, setStats] = useState({ total: 0, with_email: 0, with_website: 0 });
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const debouncedSearch = useDebounced(search, 250);
-
-  const fetchAll = useCallback(async (q = "") => {
-    setLoading(true);
-    try {
-      const [list, s] = await Promise.all([
-        companiesApi.list(q),
-        companiesApi.stats(),
-      ]);
-      setCompanies(list);
-      setStats(s);
-    } catch {
-      toast.error("Failed to load leads");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchAll(debouncedSearch);
-  }, [debouncedSearch, fetchAll]);
-
-  const handleExport = () => {
-    if (!companies.length) {
-      toast.error("No companies to export");
-      return;
-    }
-    window.location.href = companiesApi.exportUrl();
-  };
-
-  const headingCount = useMemo(
-    () => (debouncedSearch ? `${companies.length} match${companies.length === 1 ? "" : "es"}` : `${companies.length} lead${companies.length === 1 ? "" : "s"}`),
-    [companies.length, debouncedSearch],
-  );
+  const [tab, setTab] = useState("leads");
+  // Bumping this signal triggers a re-fetch in LeadsView (e.g. after "Save to Leads")
+  const [leadsRefresh, setLeadsRefresh] = useState(0);
 
   return (
-    <div className="min-h-screen bg-white text-neutral-900 font-body" data-testid="lead-finder-root">
-      <Header>
-        <Button
-          variant="outline"
-          onClick={handleExport}
-          data-testid="export-csv-btn"
-          className="rounded-none border-neutral-300 hover:bg-neutral-100 h-10 px-4 gap-2 font-semibold"
-        >
-          <DownloadSimple size={16} weight="bold" />
-          Export CSV
-        </Button>
-        <AddCompanyDialog onCreated={() => fetchAll(debouncedSearch)} />
-      </Header>
+    <div
+      className="min-h-screen bg-white text-neutral-900 font-body"
+      data-testid="lead-finder-root"
+    >
+      <Header />
 
-      <StatsBar stats={stats} />
-
-      <main className="mx-auto max-w-7xl px-6 md:px-12 py-10 md:py-14">
-        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 mb-8">
-          <div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-neutral-500 mb-2">
-              Pipeline
-            </p>
-            <h2 className="font-heading text-3xl md:text-4xl font-extrabold tracking-tight">
-              Your Leads
-            </h2>
-            <p className="text-sm text-neutral-500 mt-2" data-testid="results-count">
-              {headingCount}
-            </p>
-          </div>
-
-          <div className="relative w-full md:max-w-sm">
-            <MagnifyingGlass
-              size={16}
-              weight="bold"
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none"
-            />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search companies…"
-              data-testid="company-search-input"
-              className="pl-9 pr-9 rounded-none border-neutral-300 focus-visible:ring-1 focus-visible:ring-[#002FA7] focus-visible:ring-offset-0 h-11"
-            />
-            {search && (
+      <nav
+        className="border-b border-neutral-200 bg-white"
+        data-testid="primary-tabs"
+      >
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 md:px-12 flex gap-2 overflow-x-auto">
+          {TABS.map((t) => {
+            const active = tab === t.id;
+            return (
               <button
-                onClick={() => setSearch("")}
-                aria-label="Clear search"
-                data-testid="clear-search-btn"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-900"
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                data-testid={`tab-${t.id}`}
+                className={`relative px-4 py-3 -mb-px text-sm font-semibold tracking-tight transition-colors duration-150 whitespace-nowrap border-b-2 ${
+                  active
+                    ? "border-neutral-900 text-neutral-900"
+                    : "border-transparent text-neutral-500 hover:text-neutral-900"
+                }`}
               >
-                <X size={14} weight="bold" />
+                {t.label}
               </button>
-            )}
-          </div>
+            );
+          })}
         </div>
+      </nav>
 
-        <CompaniesTable
-          companies={companies}
-          loading={loading}
-          search={debouncedSearch}
-          onChanged={() => fetchAll(debouncedSearch)}
-        />
+      <main className="mx-auto max-w-7xl px-4 sm:px-6 md:px-12 py-10 md:py-14">
+        {tab === "leads" && (
+          <LeadsView refreshSignal={leadsRefresh} />
+        )}
+        {tab === "opportunities" && (
+          <OpportunitiesView onLeadsChanged={() => setLeadsRefresh((n) => n + 1)} />
+        )}
 
         <footer className="mt-16 pt-8 border-t border-neutral-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-neutral-500">

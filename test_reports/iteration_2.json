@@ -1,0 +1,52 @@
+{
+  "summary": "Iteration 2 - full backend + frontend testing of Opportunity Discovery upgrade. Backend: 32/32 pytest cases pass (10 companies + 22 new opportunities/outreach covering meta, seed idempotency, list/sort, filters by skills/role/employment_type/work_mode, validation 422s, status update with persistence, save-to-leads idempotency, delete + 404, and a LIVE Claude Sonnet 4.5 outreach generation via emergentintegrations). One backend bug found & fixed: POST /api/opportunities/{id}/save-to-leads returned 500 because motor injects `_id` (ObjectId) into the inserted dict and the route returned it raw. Fixed by stripping _id before serialization. Frontend e2e via Playwright: tabs work, seed loads 5, all filter inputs/selects narrow rows correctly, clear resets, sort=company_az reorders, per-row status change persists, save-to-leads creates a Lead (visible in Leads tab) and is idempotent on 2nd click, generate-email modal calls live LLM and returns subject+body (~1100 chars), edit toggles read-only off, add-opportunity dialog creates a new row with toast confirmation, delete-with-confirm removes row.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Find Opportunities (dev overlay)",
+        "issues": [
+          "Benign CRA runtime overlay fires 'ResizeObserver loop completed with undelivered notifications' when Radix Select dropdowns mount inside the filters / status cells. Functionality is unaffected (toasts, mutations, navigation all work). To silence in dev, wrap window with the standard ResizeObserver error swallow in index.js or upgrade react-scripts overlay handler."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_companies_api.py",
+    "/app/backend/tests/test_opportunities_outreach.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/opportunities_outreach.xml"
+  ],
+  "action_items": [
+    "(OPTIONAL) Suppress the ResizeObserver dev overlay so CRA error modal does not flash during Select interactions.",
+    "(Pre-existing from iteration_1, still applicable) Mobile header overflow at <=390px when Add Lead + Export CSV buttons render."
+  ],
+  "critical_code_review_comments": [
+    "routes/opportunities.py:save_to_leads mutated the inserted company dict via motor's insert_one which auto-appends _id (ObjectId) — patched to pop _id before returning. Consider building a fresh response dict instead of returning the inserted dict by reference to avoid future regressions of the same pattern.",
+    "routes/opportunities.py: skills filter uses $in with compiled regex objects — pymongo treats them as element-wise regex match, which works, but a cleaner alternative is `{ 'skills': { '$elemMatch': { '$regex': ... } } }` per skill, or a normalized lowercased copy field for indexed exact-match.",
+    "server.py still uses deprecated @app.on_event hooks; migrate to lifespan handlers (warning carried over from iter 1).",
+    "Outreach: a single fixed system prompt is fine for MVP, but no max_tokens / temperature is being set on LlmChat — relies on provider defaults. Consider explicit caps to bound latency + cost.",
+    "GenerateEmailDialog: the To/Subject/Body inputs are readOnly but visually look identical to editable inputs — consider a subtle disabled background until Edit is toggled so users see they can't type yet.",
+    "OpportunitiesView: meta() call has empty .catch(()=>{}) – swallowing the error makes meta failure silent; surface a toast.",
+    "AddOpportunityDialog testids use a different naming convention (opp-input-*) than the rest of the page (opp-<thing>-<id>). Worth standardizing for testing & docs."
+  ],
+  "updated_files": [
+    "/app/backend/routes/opportunities.py (fix: strip _id before returning save-to-leads response)",
+    "/app/backend/tests/test_opportunities_outreach.py (new - 22 pytest cases)"
+  ],
+  "success_rate": {
+    "backend": "100% (32/32 after one-line fix)",
+    "frontend": "100% (all critical flows working; one benign dev overlay warning)"
+  },
+  "test_credentials": "N/A - open access app, no auth",
+  "seed_data_creation": "5 sample opportunities inserted via POST /api/opportunities/seed (idempotent). All TEST_ prefixed rows cleaned up via fixture teardown + curl sweep at end.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Tests live at /app/backend/tests/test_opportunities_outreach.py and /app/backend/tests/test_companies_api.py. Both clean their TEST_ prefixed rows. Live LLM call test in outreach takes ~5-15s. The fix to routes/opportunities.py:save_to_leads strips _id - if anyone re-introduces returning the raw inserted dict, the JSON serializer will 500 again. Frontend uses Radix Select which triggers harmless ResizeObserver warnings - safe to ignore.",
+  "rca of the issue": "POST /api/opportunities/{id}/save-to-leads RCA: motor's insert_one mutates the input dict by adding the generated _id (bson.ObjectId). The route then returned that same dict in the JSON response. FastAPI's jsonable_encoder cannot serialize ObjectId -> 500 with 'ObjectId object is not iterable / vars() argument must have __dict__ attribute'. Reproduction: create an opportunity that has not yet been saved as a Lead, then POST to /opportunities/{id}/save-to-leads -> 500. Mitigation applied: pop '_id' from the company dict before returning. Long-term: construct an explicit response model (CompanyOut) rather than re-using the mutated input dict."
+}
